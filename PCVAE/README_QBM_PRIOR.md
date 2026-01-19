@@ -23,7 +23,7 @@ QBM-VAE（QVAE）将潜变量的先验替换为玻尔兹曼机（RBM/QBM）能�
 
 ### 2) QBM/RBM 先验与 KL 估计
 
-在 `PILP` 中新增 `RestrictedBoltzmannMachine` 作为先验模型，新增 `kl_divergence` 以实现 “交叉熵 - 熵” 的 KL 估计，并以 CD 采样近似负相。
+在 `PILP` 中新增 `RestrictedBoltzmannMachine` 作为先验模型，新增 `kl_divergence` 以实现 “交叉熵 - 熵” 的 KL 估计，并用 QVAE 示例一致的模拟退火采样器（`SimulatedAnnealingOptimizer`）进行负相估计。
 
 ### 3) 训练与预测逻辑
 
@@ -36,7 +36,7 @@ QBM-VAE（QVAE）将潜变量的先验替换为玻尔兹曼机（RBM/QBM）能�
 关键修改：
 
 * 新增 QBM 相关依赖：`RestrictedBoltzmannMachine` 与 `MixtureGeneric`。
-* 使用 `q_logits` 代替 `(mu, logvar)`；新增 `posterior`、`kl_divergence` 以及 CD 负相采样 `_rbm_negative_sample`。
+* 使用 `q_logits` 代替 `(mu, logvar)`；新增 `posterior`、`kl_divergence` 以及基于模拟退火的负相采样 `_bm_negative_sample`。
 * `forward` 输出包含 `kl`，供训练使用。
 
 ### 训练与预测（`PCVAE/src/steps.py`）
@@ -56,7 +56,7 @@ model = PILP(
     latent_size=64,          # 总 latent 维度
     qbm_visible=32,          # QBM 可见层维度（默认 latent_size//2）
     dist_beta=10.0,          # MixtureGeneric 的平滑参数
-    qbm_cd_steps=10,         # CD 采样步数
+    qbm_sampler_alpha=0.95,  # 模拟退火采样器参数
 )
 ```
 
@@ -64,4 +64,4 @@ model = PILP(
 
 * `latent_size` 必须等于 `qbm_visible + qbm_hidden`（其中 `qbm_hidden = latent_size - qbm_visible`）。
 * 使用 QBM 先验会引入二值潜变量与能量模型训练，建议调小 KL 权重或采用 KL annealing。
-* QBM 的负相采样使用 CD 近似，实际部署可替换为更高质量的采样器（如模拟退火或量子采样器）。
+* 负相采样默认使用模拟退火采样器，可替换为更高质量的采样器（如量子采样器或自定义优化器）。

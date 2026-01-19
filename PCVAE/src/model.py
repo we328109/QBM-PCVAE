@@ -5,6 +5,7 @@ from torch import nn, softmax
 import torch.nn.functional as F
 from torch.nn.modules.activation import Softmax
 from utils import physic_informed
+from kaiwu.classical import SimulatedAnnealingOptimizer
 from kaiwu.torch_plugin import RestrictedBoltzmannMachine
 from kaiwu.torch_plugin.qvae_dist_util import MixtureGeneric
 
@@ -66,7 +67,8 @@ class PILP(nn.Module):
         p=0.1,
         qbm_visible=None,
         dist_beta=10.0,
-        qbm_cd_steps=10,
+        qbm_sampler=None,
+        qbm_sampler_alpha=0.95,
     ):
         super(PILP, self).__init__()
         # encoder
@@ -87,11 +89,13 @@ class PILP(nn.Module):
         self.latent_size = latent_size
         self.qbm_num_visible = qbm_visible or latent_size // 2
         self.qbm_num_hidden = latent_size - self.qbm_num_visible
-        self.qbm_cd_steps = qbm_cd_steps
         self.dist_beta = dist_beta
         self.qbm = RestrictedBoltzmannMachine(
             num_visible=self.qbm_num_visible,
             num_hidden=self.qbm_num_hidden,
+        )
+        self.qbm_sampler = qbm_sampler or SimulatedAnnealingOptimizer(
+            alpha=qbm_sampler_alpha
         )
 
     def encode(self, gt, x): #(q(z|ft,gt))
@@ -108,25 +112,8 @@ class PILP(nn.Module):
         zeta = posterior_dist.reparameterize(self.training)
         return posterior_dist, zeta
 
-    def _rbm_negative_sample(self, num_samples):
-        device = self.qbm.linear_bias.device
-        with torch.no_grad():
-            v = torch.bernoulli(
-                torch.full((num_samples, self.qbm_num_visible), 0.5, device=device)
-            )
-            h = torch.bernoulli(
-                torch.full((num_samples, self.qbm_num_hidden), 0.5, device=device)
-            )
-            for _ in range(self.qbm_cd_steps):
-                h_prob = torch.sigmoid(
-                    v @ self.qbm.quadratic_coef + self.qbm.hidden_bias
-                )
-                h = (h_prob > torch.rand_like(h_prob)).float()
-                v_prob = torch.sigmoid(
-                    h @ self.qbm.quadratic_coef.t() + self.qbm.visible_bias
-                )
-                v = (v_prob > torch.rand_like(v_prob)).float()
-            return torch.cat([v, h], dim=1)
+    def _bm_negative_sample(self):
+        return self.qbm.sample(self.qbm_sampler)
 
     def kl_divergence(self, posterior, zeta):
         entropy = torch.sum(posterior.entropy(), dim=1)
@@ -152,7 +139,7 @@ class PILP(nn.Module):
             torch.matmul(q1_pert, self.qbm.quadratic_coef) * q2, dim=1, keepdim=True
         )
         cross_entropy = cross_entropy.squeeze(dim=1)
-        s_neg = self._rbm_negative_sample(logit_q.shape[0])
+        s_neg = self._bm_negative_sample()
         cross_entropy = cross_entropy - self.qbm(s_neg).mean()
 
         kl = cross_entropy - entropy
