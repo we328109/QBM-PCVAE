@@ -55,7 +55,7 @@ def main(args):
         pin_memory=True,
     )
     # model
-    model = PILP(args.traj_dim).double()
+    model = PILP(args.traj_dim)
     #model.load_state_dict(torch.load("./ckpt/111/model-best-reg-14.pt"))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
