@@ -13,42 +13,19 @@ class TrajDataset(Dataset):
         super().__init__()
         self.file = file
         #datas = pd.read_csv(file)#.drop_duplicates(subset=['full_formula'])
-        self.features = np.array(
-            pd.read_csv(file).iloc[:, 11:].fillna(0).values, dtype=np.float32
-        )
-        self.a = np.array(
-            pd.read_csv(file).iloc[:, 4].fillna(0).values, dtype=np.float32
-        )
-        self.b = np.array(
-            pd.read_csv(file).iloc[:, 5].fillna(0).values, dtype=np.float32
-        )
-        self.c = np.array(
-            pd.read_csv(file).iloc[:, 6].fillna(0).values, dtype=np.float32
-        )
-        self.alpha = (
-            np.array(
-                pd.read_csv(file).iloc[:, 7].fillna(0).values, dtype=np.float32
-            )
-            / 180.0
-            * 3.1415926
-        )
-        self.beta = (
-            np.array(
-                pd.read_csv(file).iloc[:, 8].fillna(0).values, dtype=np.float32
-            )
-            / 180.0
-            * 3.1415926
-        )
-        self.gamma = (
-            np.array(
-                pd.read_csv(file).iloc[:, 9].fillna(0).values, dtype=np.float32
-            )
-            / 180.0
-            * 3.1415926
-        )
-        self.crystals = np.array(
-            pd.read_csv(file).iloc[:, 1].fillna(0).values, dtype=np.float32
-        )
+        df = pd.read_csv(file).fillna(0)
+        target_cols = ["a", "b", "c", "alpha", "beta", "gamma"]
+        numeric_df = df.select_dtypes(include=["number"])
+        self.features = numeric_df.drop(
+            columns=target_cols + ["crystal_system"]
+        ).values.astype(np.float32)
+        self.a = df["a"].astype(np.float32).values
+        self.b = df["b"].astype(np.float32).values
+        self.c = df["c"].astype(np.float32).values
+        self.alpha = df["alpha"].astype(np.float32).values / 180.0 * 3.1415926
+        self.beta = df["beta"].astype(np.float32).values / 180.0 * 3.1415926
+        self.gamma = df["gamma"].astype(np.float32).values / 180.0 * 3.1415926
+        self.crystals = df["crystal_system"].astype(np.float32).values
         #print(type(self.features), self.features.shape)
         #print(type(self.features.shape[0]), self.features.shape[0])
     def __len__(self):
