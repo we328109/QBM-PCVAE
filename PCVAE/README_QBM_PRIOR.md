@@ -65,3 +65,11 @@ model = PILP(
 * `latent_size` 必须等于 `qbm_visible + qbm_hidden`（其中 `qbm_hidden = latent_size - qbm_visible`）。
 * 使用 QBM 先验会引入二值潜变量与能量模型训练，建议调小 KL 权重或采用 KL annealing。
 * 负相采样默认使用模拟退火采样器，可替换为更高质量的采样器（如量子采样器或自定义优化器）。
+
+### 快速 sanity-check
+
+在不加载真实数据的情况下验证 QBM 采样与 KL 计算能跑通：
+
+```bash
+python PCVAE/src/sanity_check_qbm.py --traj_dim 249 --latent_size 64 --batch_size 4
+```
