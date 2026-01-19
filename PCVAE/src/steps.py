@@ -14,8 +14,9 @@ def train(model, data_loader, optimizer, epoch):
     beta_loss=list()
     gamma_loss=list()
     KLD_loss = list()
-    correct = torch.zeros(1).squeeze().cuda()
-    total = torch.zeros(1).squeeze().cuda()
+    device = next(model.parameters()).device
+    correct = torch.zeros(1, device=device).squeeze()
+    total = torch.zeros(1, device=device).squeeze()
 
     criterion = torch.nn.MSELoss()
     #criertion_class = torch.nn.BCEWithLogitsLoss()
@@ -26,8 +27,8 @@ def train(model, data_loader, optimizer, epoch):
     #for step, feature, crystal_gt in enumerate(data_loader):
         
         crystal, prediction, q_logits, zeta, kl_loss = model.forward(
-            all_truth.cuda(non_blocking=True),
-            feature.cuda(non_blocking=True),
+            all_truth.to(device, non_blocking=True),
+            feature.to(device, non_blocking=True),
             np.array(crystal_gt),
         )
         crytal_pre = torch.argmax(crystal, 1).view(-1)
@@ -54,7 +55,7 @@ def train(model, data_loader, optimizer, epoch):
 
         all_loss = (
             loss_reg_avg
-            + criertion_class(crystal, crystal_gt.long().cuda(0))
+            + criertion_class(crystal, crystal_gt.long().to(device))
             + kl_loss
         )
         #all_loss = criertion_class(crystal, y_one_hot)
@@ -65,15 +66,15 @@ def train(model, data_loader, optimizer, epoch):
         optimizer.step()
 
         #print("GT, PRED \n", ground_truth[0], prediction[0].squeeze())
-        a_loss.append(criterion(ground_truth[0].cuda(0), prediction[0].squeeze()).item())
-        b_loss.append(criterion(ground_truth[1].cuda(0), prediction[1].squeeze()).item())
-        c_loss.append(criterion(ground_truth[2].cuda(0), prediction[2].squeeze()).item())
-        alpha_loss.append(criterion(ground_truth[3].cuda(0), prediction[3].squeeze()).item())
-        beta_loss.append(criterion(ground_truth[4].cuda(0), prediction[4].squeeze()).item())
-        gamma_loss.append(criterion(ground_truth[5].cuda(0), prediction[5].squeeze()).item())
+        a_loss.append(criterion(ground_truth[0].to(device), prediction[0].squeeze()).item())
+        b_loss.append(criterion(ground_truth[1].to(device), prediction[1].squeeze()).item())
+        c_loss.append(criterion(ground_truth[2].to(device), prediction[2].squeeze()).item())
+        alpha_loss.append(criterion(ground_truth[3].to(device), prediction[3].squeeze()).item())
+        beta_loss.append(criterion(ground_truth[4].to(device), prediction[4].squeeze()).item())
+        gamma_loss.append(criterion(ground_truth[5].to(device), prediction[5].squeeze()).item())
         KLD_loss.append(kl_loss.item())
         prediction = torch.argmax(crystal, 1)
-        correct += (prediction == crystal_gt.cuda(0)).sum().float()
+        correct += (prediction == crystal_gt.to(device)).sum().float()
         total += len(crystal_gt)
         #print(a_loss[step], b_loss[step], c_loss[step], alpha_loss[step], beta_loss[step], gamma_loss[step], KLD_loss[step])
     reg_avg = [np.array(a_loss).mean(), np.array(b_loss).mean(), np.array(c_loss).mean(), np.array(alpha_loss).mean(), np.array(beta_loss).mean(), np.array(gamma_loss).mean(), np.array(KLD_loss).mean()]
@@ -91,13 +92,14 @@ def test(model, data_loader):
     alpha_pre, alpha_true=list(), list()
     beta_pre, beta_true=list(), list()
     gamma_pre, gamma_true=list(), list()
-    correct = torch.zeros(1).squeeze().cuda()
-    total = torch.zeros(1).squeeze().cuda()
+    device = next(model.parameters()).device
+    correct = torch.zeros(1, device=device).squeeze()
+    total = torch.zeros(1, device=device).squeeze()
     for step, (feature, ground_truth, crystal_gt, all_truth) in tqdm(enumerate(data_loader)):
 
         crystal, prediction, q_logits, zeta, kl_loss = model(
-            all_truth.cuda(non_blocking=True),
-            feature.cuda(non_blocking=True),
+            all_truth.to(device, non_blocking=True),
+            feature.to(device, non_blocking=True),
             np.array(crystal_gt),
         )
         a_true.append(ground_truth[0].numpy()), a_pre.append(prediction[0].squeeze().detach().cpu().numpy())
@@ -108,7 +110,7 @@ def test(model, data_loader):
         gamma_true.append(ground_truth[5].numpy()), gamma_pre.append(prediction[5].squeeze().detach().cpu().numpy())
         
         prediction = torch.argmax(crystal, 1)
-        correct += (prediction == crystal_gt.cuda(0)).sum().float()
+        correct += (prediction == crystal_gt.to(device)).sum().float()
         total += len(crystal_gt)
     R2 = r2_cal([a_true, b_true, c_true, alpha_true, beta_true, gamma_true], [a_pre, b_pre, c_pre, alpha_pre, beta_pre, gamma_pre])
     #reg_avg = [np.array(a_loss).mean(), np.array(b_loss).mean(), np.array(c_loss).mean(), np.array(alpha_loss).mean(), np.array(beta_loss).mean(), np.array(gamma_loss).mean()]
@@ -180,16 +182,17 @@ def predict(model, loader, args):
     #cry_pred, parameter, q_logits, zeta, kl_loss = model(all_truth.cuda(non_blocking=True), feature.cuda(non_blocking=True), np.array(crystal_truth))
     ################
 
+    device = next(model.parameters()).device
     q_logits = model.encode(
-      all_truth.cuda(non_blocking=True),
-      feature.cuda(non_blocking=True),
+      all_truth.to(device, non_blocking=True),
+      feature.to(device, non_blocking=True),
     )
     posterior, _ = model.posterior(q_logits)
     min_mae = 100000
     for i in range(10):
       zeta = posterior.reparameterize(model.training)
       cry_pred_temp, parameter_temp = model.decode(
-        zeta, torch.tensor(feature).cuda(non_blocking=True), crystal_truth
+        zeta, torch.tensor(feature).to(device, non_blocking=True), crystal_truth
       )
       mae = 0
       for tru, pred in zip(truth, parameter_temp):
@@ -201,7 +204,7 @@ def predict(model, loader, args):
     for i in range(10):
       zeta = posterior.reparameterize(model.training)
       cry_pred_temp, parameter_temp = model.decode(
-        zeta, torch.tensor(feature).cuda(non_blocking=True), crystal_truth
+        zeta, torch.tensor(feature).to(device, non_blocking=True), crystal_truth
       )
       if torch.argmax(cry_pred_temp, 1).cpu() == crystal_truth:
         cry_pred_1 = cry_pred_temp

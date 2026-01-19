@@ -57,7 +57,8 @@ def main(args):
     # model
     model = PILP(args.traj_dim).double()
     #model.load_state_dict(torch.load("./ckpt/111/model-best-reg-14.pt"))
-    model = model.cuda(0)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
     #model.load_state_dict(torch.load("./ckpt/phase/model-499.pt"))
     
     # optimizer
