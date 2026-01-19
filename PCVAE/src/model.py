@@ -5,6 +5,8 @@ from torch import nn, softmax
 import torch.nn.functional as F
 from torch.nn.modules.activation import Softmax
 from utils import physic_informed
+from kaiwu.torch_plugin import RestrictedBoltzmannMachine
+from kaiwu.torch_plugin.qvae_dist_util import MixtureGeneric
 
 
 class MLP_REG(nn.Module):
@@ -56,12 +58,20 @@ class MLP_CLA(nn.Module):
 
 
 class PILP(nn.Module):
-    def __init__(self, ft_dim, training=True, latent_size=64, p=0.1):
+    def __init__(
+        self,
+        ft_dim,
+        training=True,
+        latent_size=64,
+        p=0.1,
+        qbm_visible=None,
+        dist_beta=10.0,
+        qbm_cd_steps=10,
+    ):
         super(PILP, self).__init__()
         # encoder
         self.fc1 = nn.Linear(ft_dim + 7, 512)
-        self.fc21 = nn.Linear(512, latent_size)
-        self.fc22 = nn.Linear(512, latent_size)
+        self.fc2 = nn.Linear(512, latent_size)
         # decode
         self.a_pre = MLP_REG(ft_dim+latent_size, p)
         self.b_pre = MLP_REG(ft_dim+latent_size, p)
@@ -74,24 +84,79 @@ class PILP(nn.Module):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
         self.training = training
+        self.latent_size = latent_size
+        self.qbm_num_visible = qbm_visible or latent_size // 2
+        self.qbm_num_hidden = latent_size - self.qbm_num_visible
+        self.qbm_cd_steps = qbm_cd_steps
+        self.dist_beta = dist_beta
+        self.qbm = RestrictedBoltzmannMachine(
+            num_visible=self.qbm_num_visible,
+            num_hidden=self.qbm_num_hidden,
+        )
 
-    def encode(self, gt, x): #(p(z|ft,gt))
+    def encode(self, gt, x): #(q(z|ft,gt))
         '''
         gt = ground truth, x = feature
         '''
         inputs = torch.cat([gt, x], 1)
         h1 = self.sigmoid(self.fc1(inputs))
-        z_mu = self.fc21(h1)
-        z_var = self.fc22(h1)
-        return z_mu, z_var
+        q_logits = self.fc2(h1)
+        return q_logits
 
-    def reparametrize(self, mu, logvar):
-        if self.training:
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std) + mu
-        else:
-            return mu
+    def posterior(self, q_logits):
+        posterior_dist = MixtureGeneric(q_logits, self.dist_beta)
+        zeta = posterior_dist.reparameterize(self.training)
+        return posterior_dist, zeta
+
+    def _rbm_negative_sample(self, num_samples):
+        device = self.qbm.linear_bias.device
+        with torch.no_grad():
+            v = torch.bernoulli(
+                torch.full((num_samples, self.qbm_num_visible), 0.5, device=device)
+            )
+            h = torch.bernoulli(
+                torch.full((num_samples, self.qbm_num_hidden), 0.5, device=device)
+            )
+            for _ in range(self.qbm_cd_steps):
+                h_prob = torch.sigmoid(
+                    v @ self.qbm.quadratic_coef + self.qbm.hidden_bias
+                )
+                h = (h_prob > torch.rand_like(h_prob)).float()
+                v_prob = torch.sigmoid(
+                    h @ self.qbm.quadratic_coef.t() + self.qbm.visible_bias
+                )
+                v = (v_prob > torch.rand_like(v_prob)).float()
+            return torch.cat([v, h], dim=1)
+
+    def kl_divergence(self, posterior, zeta):
+        entropy = torch.sum(posterior.entropy(), dim=1)
+        logit_q = posterior.logit_mu
+        log_ratio = posterior.log_ratio(zeta)
+
+        if self.qbm.num_nodes != logit_q.shape[1]:
+            raise ValueError(
+                "QBM latent size does not match encoder output size."
+            )
+
+        logit_q1 = logit_q[:, : self.qbm_num_visible]
+        logit_q2 = logit_q[:, self.qbm_num_visible :]
+        log_ratio1 = log_ratio[:, : self.qbm_num_visible]
+
+        q1 = torch.sigmoid(logit_q1)
+        q2 = torch.sigmoid(logit_q2)
+        q1_pert = torch.sigmoid(logit_q1 + log_ratio1)
+
+        cross_entropy = -torch.matmul(
+            torch.cat([q1, q2], dim=-1), self.qbm.linear_bias
+        ) - torch.sum(
+            torch.matmul(q1_pert, self.qbm.quadratic_coef) * q2, dim=1, keepdim=True
+        )
+        cross_entropy = cross_entropy.squeeze(dim=1)
+        s_neg = self._rbm_negative_sample(logit_q.shape[0])
+        cross_entropy = cross_entropy - self.qbm(s_neg).mean()
+
+        kl = cross_entropy - entropy
+        return torch.mean(kl)
 
     def decode(self, z, x, crystal_gt=None):
         '''
@@ -113,7 +178,8 @@ class PILP(nn.Module):
         return crystal, [a, b, c, alpha, beta, gamma]
 
     def forward(self, gt, x, crystal_gt=None):
-        mu, logvar = self.encode(gt, x)
-        z = self.reparametrize(mu, logvar)
-        cry, pi = self.decode(z, x, crystal_gt)
-        return cry, pi, mu, logvar
+        q_logits = self.encode(gt, x)
+        posterior, zeta = self.posterior(q_logits)
+        cry, pi = self.decode(zeta, x, crystal_gt)
+        kl = self.kl_divergence(posterior, zeta)
+        return cry, pi, q_logits, zeta, kl
