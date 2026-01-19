@@ -1,5 +1,5 @@
 # dataset
-
+- test_phases.csv为phase.csv中随机划分的20%数据
 - full.csv
 - phase.csv
 
