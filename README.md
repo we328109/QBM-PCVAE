@@ -1,6 +1,6 @@
 # 在 PCVAE 中使用 QBM-VAE 玻尔兹曼先验的实现说明
 
-## 理论替换要点（PCVAE → QBM-VAE）
+## 理论替换要点（PCVAE → QBM-PCVAE）
 
 PCVAE 原始实现使用高斯先验，编码器输出均值与方差，通过重参数化采样连续隐变量，并在训练时加入标准正态 KL 散度正则项。对应逻辑集中在 `PILP.encode` 和训练步骤中的 KL 项计算。PCVAE 当前的训练损失中仍然直接使用标准高斯 KL（`-0.5 * sum(1 + logvar - mu^2 - exp(logvar))`）。
 
