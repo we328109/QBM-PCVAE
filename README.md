@@ -72,4 +72,3 @@ model = PILP(
 
 ```bash
 python PCVAE/src/sanity_check_qbm.py --traj_dim 249 --latent_size 64 --batch_size 4
-``` 本项目计划使用QBM-VAE相关方法将PCVAE中的高斯先验替换为玻尔兹曼先验。
